@@ -11,7 +11,7 @@ import FirebaseFirestore
 struct FirebaseConstant{
     static let fromId = "fromId"
     static let toId = "toId"
-    static let text = " text"
+    static let text = "text"
     static let email = "email"
     static let profileImageUrl = "profileImageUrl"
     

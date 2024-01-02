@@ -7,6 +7,10 @@
 
 import SwiftUI
 import SDWebImageSwiftUI
+import FirebaseFirestore
+import FirebaseFirestoreSwift
+
+
 
 
 class MainMessagesViewModel: ObservableObject {
@@ -23,6 +27,48 @@ class MainMessagesViewModel: ObservableObject {
         }
         
         fetchCurrentUser()
+        
+        fetchRecentMessages()
+    }
+    
+    @Published var recentMessages = [RecentMessages]()
+
+    private var firestoreListener: ListenerRegistration?
+    
+    func fetchRecentMessages(){
+        guard let uid = FirebaseManager.shared.auth.currentUser?.uid else { return }
+        
+        firestoreListener?.remove()
+        self.recentMessages.removeAll()
+        
+        firestoreListener = FirebaseManager.shared.firestore
+            .collection("recent_messages")
+            .document(uid)
+            .collection("messages")
+            .order(by: "timestamp")
+            .addSnapshotListener{ querySnapshot, error in
+                if let error = error {
+                    self.errorMessage = "Failed to listen for recent messages: \(error)"
+                    print(error)
+                    return
+                }
+                querySnapshot?.documentChanges.forEach({ change in
+                    let docId = change.document.documentID
+                    if let index = self.recentMessages.firstIndex(where: { rm in
+                           return rm.id == docId
+                       }) {
+                           self.recentMessages.remove(at: index)
+                       }
+                    
+                    do {
+                        let rm = try change.document.data(as: RecentMessages.self)
+                        self.recentMessages.insert(rm, at: 0)
+                    } catch {
+                        print(error)
+                    }
+                                        
+                })
+            }
     }
     
     func fetchCurrentUser(){
@@ -80,13 +126,18 @@ struct MainMessagesView: View {
                 
                 NavigationLink("", isActive: $shouldNavigateToChatLogView) {
                     ChatLogView(chatUser: self.chatUser)
+                    
                 }
+                
             }
             .overlay(
                 newMessageButton, alignment: .bottom)
             .navigationBarHidden(true)
+            
         }
     }
+    
+    @State private var isActive = false
     
     private var customNavBar : some View {
         HStack(spacing: 16) {
@@ -124,6 +175,17 @@ struct MainMessagesView: View {
             
             Spacer()
             
+            Toggle("HMU", isOn: $isActive)
+                .font(.title2)
+            .padding(5)
+            .foregroundColor(.white)
+            .background(Color(.label))
+            .cornerRadius(5)
+            
+
+            
+            Spacer()
+            
             Button {
                 shouldShowLogOutOptions.toggle()
             } label: {
@@ -139,7 +201,6 @@ struct MainMessagesView: View {
                     print("handle sign out")
                     vm.handleSignOut()
                 }),
-//                        .default(Text("DEFAULT BUTTON")),
                     .cancel()
             ])
         }
@@ -147,6 +208,7 @@ struct MainMessagesView: View {
             LoginView(didCompleteLoginProcess: {
                 self.vm.isUserCurrentlyLoggedOut = false
                 self.vm.fetchCurrentUser()
+                self.vm.fetchRecentMessages()
             })
         }
     }
@@ -155,30 +217,38 @@ struct MainMessagesView: View {
     
     private var messagesView : some View {
         ScrollView {
-            ForEach(0..<10, id: \.self) { num in
+            ForEach(vm.recentMessages) { recentMessage in
                 VStack{
                     NavigationLink {
                         Text("Destination")
                     } label: {
                         HStack(spacing: 16) {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 32))
-                                .padding(8)
-                                .overlay(RoundedRectangle(cornerRadius: 44)
-                                    .stroke(Color(.label), lineWidth: 1))
+                            WebImage(url: URL(string: recentMessage.profileImageUrl))
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 64, height: 64)
+                                .clipped()
+                                .cornerRadius(64)
+                                .overlay(RoundedRectangle(cornerRadius: 64)
+                                            .stroke(Color.black, lineWidth: 1))
+                                .shadow(radius: 5)
                             
-                            VStack(alignment: .leading) {
-                                Text("Username")
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(recentMessage.username)
                                     .font(.system(size: 16, weight: .bold))
-                                Text("Message sent to User")
+                                    .foregroundColor(Color(.label))
+                                Text(recentMessage.text)
                                     .font(.system(size: 14))
-                                    .foregroundColor(Color(.lightGray))
+                                    .foregroundColor(Color(.darkGray))
+                                    .multilineTextAlignment(.leading)
+                                
                                 
                             }
                             Spacer()
                             
-                            Text("22d")
+                            Text(recentMessage.timeAgo)
                                 .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(Color(.label))
                     }
 
                     
@@ -188,6 +258,7 @@ struct MainMessagesView: View {
                 }.padding(.horizontal)
             }.padding(.bottom, 50)
         }
+        
     }
     
     @State var shouldShowNewMessageScreen = false
